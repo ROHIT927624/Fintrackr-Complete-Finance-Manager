@@ -31,17 +31,26 @@ public class ProfileService {
     @Value("${app.activation.url}")
     private String activationURL;
 
-
-
     public ProfileDTO registerProfile(ProfileDTO profileDTO) {
         ProfileEntity newProfile = toEntity(profileDTO);
         newProfile.setActivationToken(UUID.randomUUID().toString());
+        
+        // TEMPORARY BYPASS: Auto-activate user so they can log in instantly on Render
+        newProfile.setIsActive(true); 
+        
         newProfile = profileRepository.save(newProfile);
-        //send activation email
-        String activationLink = activationURL+"/api/v1.0/activate?token=" + newProfile.getActivationToken();
-        String subject = "Activate your Money Manager account and start tracking your finances!";
-        String body = "Click on the following link to activate your account: " + activationLink;
-        emailService.sendEmail(newProfile.getEmail(), subject, body);
+        
+        // Send activation email wrapped in a safe block
+        try {
+            String activationLink = activationURL + "/api/v1.0/activate?token=" + newProfile.getActivationToken();
+            String subject = "Activate your Money Manager account and start tracking your finances!";
+            String body = "Click on the following link to activate your account: " + activationLink;
+            emailService.sendEmail(newProfile.getEmail(), subject, body);
+        } catch (Exception e) {
+            // Log the error locally but DO NOT throw it, allowing the flow to succeed
+            System.err.println("CRITICAL WARNING: Email could not be sent due to cloud network restrictions. " + e.getMessage());
+        }
+        
         return toDTO(newProfile);
     }
 
@@ -94,7 +103,7 @@ public class ProfileService {
         ProfileEntity currentUser = null;
         if (email == null) {
             currentUser = getCurrentProfile();
-        }else {
+        } else {
             currentUser = profileRepository.findByEmail(email)
                     .orElseThrow(() -> new UsernameNotFoundException("Profile not found with email: " + email));
         }
@@ -112,7 +121,7 @@ public class ProfileService {
     public Map<String, Object> authenticateAndGenerateToken(AuthDTO authDTO) {
         try {
             authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(authDTO.getEmail(), authDTO.getPassword()));
-            //Generate JWT token
+            // Generate JWT token
             String token = jwtUtil.generateToken(authDTO.getEmail());
             return Map.of(
                     "token", token,
